@@ -6,17 +6,55 @@ import jwt from "jsonwebtoken";
 import { body, param, validationResult } from "express-validator";
 import { pool } from "./db.js";
 
-dotenv.config();
-console.log("ENV CHECK -> DB_USER:", process.env.DB_USER);
-console.log("ENV CHECK -> DB_PORT:", process.env.DB_PORT);
-console.log("ENV CHECK -> DB_NAME:", process.env.DB_NAME);
+
+//dotenv.config();
+//console.log("ENV CHECK -> DB_USER:", process.env.DB_USER);
+//console.log("ENV CHECK -> DB_PORT:", process.env.DB_PORT);
+//console.log("ENV CHECK -> DB_NAME:", process.env.DB_NAME);
+
+
+const envFile =
+  process.env.NODE_ENV === "production"
+    ? ".env.supabase"
+    : ".env.local";
+
+dotenv.config({ path: envFile });
+
+console.log("Loaded env:", envFile);
+console.log("DATABASE_URL:", process.env.DATABASE_URL);
+
+
+console.log("Using DATABASE_URL");
+
 
 
 const app = express();
-app.use(cors());
+
+const port = process.env.PORT || 3000;
+
+// CORS WHITELIST
+const whitelist = [
+  "http://localhost:5173",
+  "https://inventario-frontend.vercel.app"
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Permitir requests sin origin (Thunder Client, Postman)
+    if (!origin) return callback(null, true);
+
+    if (whitelist.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.log("Bloqueado por CORS:", origin);
+      callback(new Error("Bloqueado por CORS"));
+    }
+  }
+}));
+
 app.use(express.json());
 
-const PORT = Number(process.env.PORT || 3000);
+//const PORT = Number(process.env.PORT || 3000);
 const JWT_SECRET = process.env.JWT_SECRET || "change_this_secret";
 
 // ---- Helpers ----
