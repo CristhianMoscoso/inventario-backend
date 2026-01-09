@@ -1,62 +1,48 @@
+import dotenv from "dotenv";
+
+// ✅ En Render (production) NO cargues archivos .env, Render ya inyecta variables.
+// ✅ En local sí cargamos .env.local (ajusta si usas .env)
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config({ path: ".env.local" });
+}
+
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { body, param, validationResult } from "express-validator";
 import { pool } from "./db.js";
 
-
-//dotenv.config();
-//console.log("ENV CHECK -> DB_USER:", process.env.DB_USER);
-//console.log("ENV CHECK -> DB_PORT:", process.env.DB_PORT);
-//console.log("ENV CHECK -> DB_NAME:", process.env.DB_NAME);
-
-
-const envFile =
-  process.env.NODE_ENV === "production"
-    ? ".env.supabase"
-    : ".env.local";
-
-dotenv.config({ path: envFile });
-
-console.log("Loaded env:", envFile);
-console.log("DATABASE_URL:", process.env.DATABASE_URL);
-
-
-console.log("Using DATABASE_URL");
-
-
-
 const app = express();
 
-const PORT = process.env.PORT || 3000;
-
+// ✅ JWT_SECRET obligatorio (para que no arranque con "change_this_secret")
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error("Missing JWT_SECRET environment variable");
+}
 
 // CORS WHITELIST
 const whitelist = [
   "http://localhost:5173",
-  "https://inventario-frontend.vercel.app"
+  "https://inventario-frontend.vercel.app",
 ];
 
-app.use(cors({
-  origin: function (origin, callback) {
-    // Permitir requests sin origin (Thunder Client, Postman)
-    if (!origin) return callback(null, true);
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true); // Postman/Thunder
 
-    if (whitelist.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log("Bloqueado por CORS:", origin);
-      callback(new Error("Bloqueado por CORS"));
-    }
-  }
-}));
+      if (whitelist.includes(origin)) {
+        callback(null, true);
+      } else {
+        console.log("Bloqueado por CORS:", origin);
+        callback(new Error("Bloqueado por CORS"));
+      }
+    },
+  })
+);
 
 app.use(express.json());
-
-//const PORT = Number(process.env.PORT || 3000);
-const JWT_SECRET = process.env.JWT_SECRET || "change_this_secret";
 
 // ---- Helpers ----
 function validate(req, res, next) {
@@ -74,7 +60,7 @@ function authRequired(req, res, next) {
     const payload = jwt.verify(token, JWT_SECRET);
     req.user = payload;
     next();
-  } catch (err) {
+  } catch (_err) {
     return res.status(401).json({ message: "Invalid token" });
   }
 }
@@ -132,16 +118,21 @@ app.post(
   async (req, res) => {
     const { email, password } = req.body;
     try {
-      const userRes = await pool.query("SELECT id,name,email,password_hash,role FROM users WHERE email = $1", [email]);
+      const userRes = await pool.query(
+        "SELECT id,name,email,password_hash,role FROM users WHERE email = $1",
+        [email]
+      );
       if (!userRes.rowCount) return res.status(401).json({ message: "Invalid credentials" });
 
       const user = userRes.rows[0];
       const ok = await bcrypt.compare(password, user.password_hash);
       if (!ok) return res.status(401).json({ message: "Invalid credentials" });
 
-      const token = jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET, {
-        expiresIn: "8h",
-      });
+      const token = jwt.sign(
+        { id: user.id, email: user.email, role: user.role, name: user.name },
+        JWT_SECRET,
+        { expiresIn: "8h" }
+      );
 
       res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
     } catch (e) {
@@ -172,7 +163,6 @@ app.post(
       const r = await pool.query("INSERT INTO categories(name) VALUES($1) RETURNING id,name", [name.trim()]);
       res.status(201).json(r.rows[0]);
     } catch (e) {
-      // unique violation
       if (String(e).includes("duplicate key")) return res.status(409).json({ message: "Category already exists" });
       res.status(500).json({ message: "Server error", error: String(e) });
     }
@@ -382,7 +372,6 @@ app.post(
 
 // ---- Seed admin (optional, dev) ----
 app.post("/dev/seed-admin", async (_req, res) => {
-  // Creates admin: admin@demo.com / admin123 (only if not exists)
   try {
     const email = "admin@demo.com";
     const existing = await pool.query("SELECT id FROM users WHERE email = $1", [email]);
@@ -398,6 +387,8 @@ app.post("/dev/seed-admin", async (_req, res) => {
     res.status(500).json({ message: "Server error", error: String(e) });
   }
 });
+
+const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
   console.log(`Inventario API running on http://localhost:${PORT}`);
